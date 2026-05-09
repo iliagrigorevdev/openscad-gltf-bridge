@@ -3,6 +3,11 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { convertScadToGltf } from "openscad-gltf-wasm/convert";
 
+import { WebIO } from "@gltf-transform/core";
+import { KHRONOS_EXTENSIONS } from "@gltf-transform/extensions";
+import { meshopt } from "@gltf-transform/functions";
+import { MeshoptEncoder, MeshoptDecoder } from "meshoptimizer";
+
 // --- Internal Math Logic ---
 function computeSmoothNormals(positions, creaseAngle) {
   const hashToVertices = new Map();
@@ -316,13 +321,16 @@ async function saveToBrowserCache(requestUrl, data, binary) {
 function performAutoSmooth(rawGltfData, creaseAngle, binary) {
   return new Promise((resolve, reject) => {
     const loader = new GLTFLoader();
-    const arrayBuffer = rawGltfData.buffer.slice(
-      rawGltfData.byteOffset,
-      rawGltfData.byteOffset + rawGltfData.byteLength,
-    );
+    let parseData = rawGltfData;
+    if (rawGltfData instanceof Uint8Array) {
+      parseData = rawGltfData.buffer.slice(
+        rawGltfData.byteOffset,
+        rawGltfData.byteOffset + rawGltfData.byteLength,
+      );
+    }
 
     loader.parse(
-      arrayBuffer,
+      parseData,
       "",
       (gltf) => {
         const scene = gltf.scene;
@@ -370,6 +378,43 @@ function performAutoSmooth(rawGltfData, creaseAngle, binary) {
 }
 
 /**
+ * Handles applying meshopt compression via gltf-transform
+ */
+async function performCompression(gltfData, binary) {
+  // Wait for the WebAssembly bindings to initialize
+  await MeshoptEncoder.ready;
+  await MeshoptDecoder.ready;
+
+  // Initialize glTF-Transform's WebIO, applying ALL standard extensions
+  // so that PBR extensions (Clearcoat, Transmission, etc.) aren't stripped out.
+  const io = new WebIO()
+    .registerExtensions(KHRONOS_EXTENSIONS)
+    .registerDependencies({
+      "meshopt.encoder": MeshoptEncoder,
+      "meshopt.decoder": MeshoptDecoder,
+    });
+
+  let dataToRead = gltfData;
+  if (typeof dataToRead === "string") {
+    dataToRead = new TextEncoder().encode(dataToRead);
+  }
+
+  // Parses safely into a Document structure
+  const document = await io.readBinary(dataToRead);
+
+  // Apply the Meshopt transform to iteratively compress geometry/animations over the scene graph
+  await document.transform(
+    meshopt({ encoder: MeshoptEncoder, level: "medium" }),
+  );
+
+  // Note: We force a binary representation since compression packs the geometry down into .glb chunks
+  if (!binary) {
+    console.warn("Meshopt compression forces binary output. Outputting GLB.");
+  }
+  return await io.writeBinary(document);
+}
+
+/**
  * Compiles SCAD to GLTF, applying caching, auto-smooth, and compression.
  * @param {string} scadCode - The raw SCAD input.
  * @param {Object} options - Configuration options.
@@ -381,17 +426,16 @@ export async function processScad(scadCode, options = {}) {
     autoSmooth = false,
     creaseAngle = 30, // Default to 30 degrees
     binary = true,
+    compression = false,
   } = options;
 
-  // In-memory cache key (synchronous to prevent race conditions during multiple identical calls)
-  const memKey = `${binary}|${autoSmooth}|${creaseAngle}|${scadCode}`;
+  // In-memory cache key
+  const memKey = `${binary}|${autoSmooth}|${creaseAngle}|${compression}|${scadCode}`;
 
   if (!memoryCache.has(memKey)) {
     const promise = (async () => {
       let browserCacheUrl = null;
 
-      // Attempt to generate a stable URL for the Browser Cache API
-      // Note: crypto.subtle is only available in secure contexts (HTTPS or localhost)
       if (typeof crypto !== "undefined" && crypto.subtle) {
         try {
           const msgBuffer = new TextEncoder().encode(scadCode);
@@ -400,27 +444,44 @@ export async function processScad(scadCode, options = {}) {
           const hashHex = hashArray
             .map((b) => b.toString(16).padStart(2, "0"))
             .join("");
-          browserCacheUrl = `https://scad-cache.local/model/${hashHex}?autoSmooth=${autoSmooth}&creaseAngle=${creaseAngle}&binary=${binary}`;
+          browserCacheUrl = `https://scad-cache.local/model/${hashHex}?autoSmooth=${autoSmooth}&creaseAngle=${creaseAngle}&binary=${binary}&compression=${compression}`;
 
           const cachedData = await getFromBrowserCache(browserCacheUrl);
           if (cachedData) return cachedData;
         } catch (e) {
-          // Ignore crypto or cache failures and fall back to manual processing
+          // Ignore crypto or cache failures
         }
       }
 
       let resultData;
+      // We force a binary output whenever we need to perform extra transforms,
+      // as `gltf-transform` and our pipeline operates cleanly with `.glb` binaries.
+      const requireBinaryIntermediate = autoSmooth || compression || binary;
+
       if (!autoSmooth) {
-        resultData = await convertScadToGltf(scadCode, { wasmUrl, binary });
+        resultData = await convertScadToGltf(scadCode, {
+          wasmUrl,
+          binary: requireBinaryIntermediate,
+        });
       } else {
-        // Get the raw binary GLB first (this will automatically hit memory/browser cache as well!)
+        // Fetch raw binary GLB first, recursively ignoring inner `autoSmooth`
         const rawGltfData = await processScad(scadCode, {
           wasmUrl,
           autoSmooth: false,
-          creaseAngle, // passed along, but irrelevant for autoSmooth=false
+          creaseAngle,
           binary: true,
+          compression: false,
         });
-        resultData = await performAutoSmooth(rawGltfData, creaseAngle, binary);
+        resultData = await performAutoSmooth(
+          rawGltfData,
+          creaseAngle,
+          requireBinaryIntermediate,
+        );
+      }
+
+      // Add Compression Step if requested
+      if (compression) {
+        resultData = await performCompression(resultData, binary);
       }
 
       if (browserCacheUrl) {
@@ -436,7 +497,6 @@ export async function processScad(scadCode, options = {}) {
 
   const result = await memoryCache.get(memKey);
 
-  // Return a clone for binary data to prevent the caller from detaching the cached ArrayBuffer
   if (result instanceof Uint8Array) {
     return new Uint8Array(
       result.buffer.slice(
