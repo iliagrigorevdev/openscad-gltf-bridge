@@ -1,12 +1,8 @@
-import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
-import { convertScadToGltf } from "openscad-gltf-wasm/convert";
-
 import { WebIO } from "@gltf-transform/core";
 import { KHRONOS_EXTENSIONS } from "@gltf-transform/extensions";
-import { meshopt } from "@gltf-transform/functions";
+import { meshopt, unweld, prune } from "@gltf-transform/functions";
 import { MeshoptEncoder, MeshoptDecoder } from "meshoptimizer";
+import { convertScadToGltf } from "openscad-gltf-wasm/convert";
 
 // --- Internal Math Logic ---
 function computeSmoothNormals(positions, creaseAngle) {
@@ -118,153 +114,115 @@ function computeSmoothNormals(positions, creaseAngle) {
   return vertexNormals;
 }
 
-function autoSmoothGeometry(geometry, creaseAngle) {
-  const nonIndexed = geometry.index
-    ? geometry.toNonIndexed()
-    : geometry.clone();
-  const positions = nonIndexed.attributes.position.array;
+function autoSmoothPrimitive(document, primitive, creaseAngle) {
+  const positionAccessor = primitive.getAttribute("POSITION");
+  if (!positionAccessor) return;
 
-  const hasColor = nonIndexed.attributes.color !== undefined;
-  const colors = hasColor ? nonIndexed.attributes.color.array : null;
-
-  const hasSkinIndex = nonIndexed.attributes.skinIndex !== undefined;
-  const skinIndices = hasSkinIndex
-    ? nonIndexed.attributes.skinIndex.array
-    : null;
-
-  const hasSkinWeight = nonIndexed.attributes.skinWeight !== undefined;
-  const skinWeights = hasSkinWeight
-    ? nonIndexed.attributes.skinWeight.array
-    : null;
-
+  const positions = positionAccessor.getArray();
   const normals = computeSmoothNormals(positions, creaseAngle);
 
-  const weldedPositions = [];
-  const weldedColors = [];
+  const semantics = primitive.listSemantics();
+  const accessors = semantics.map((sem) => primitive.getAttribute(sem));
+  const attrArrays = accessors.map((a) => a.getArray());
+  const attrElementSizes = accessors.map((a) => a.getElementSize());
+
+  const vertexCount = positionAccessor.getCount();
+
+  const weldedArrays = {};
+  for (const sem of semantics) {
+    weldedArrays[sem] = [];
+  }
   const weldedNormals = [];
-  const weldedSkinIndices = [];
-  const weldedSkinWeights = [];
   const indices = [];
   const vertexHash = new Map();
   let nextVertexIndex = 0;
 
-  for (let i = 0; i < positions.length / 3; i++) {
-    const px = positions[i * 3];
-    const py = positions[i * 3 + 1];
-    const pz = positions[i * 3 + 2];
+  for (let i = 0; i < vertexCount; i++) {
+    let hash = "";
 
-    const nx = normals[i * 3];
+    // Hash normal
+    const nx = normals[i * 3 + 0];
     const ny = normals[i * 3 + 1];
     const nz = normals[i * 3 + 2];
+    hash += `${Math.round(nx * 1e4)}_${Math.round(ny * 1e4)}_${Math.round(nz * 1e4)}_`;
 
-    let r = 0,
-      g = 0,
-      b = 0;
-    if (hasColor) {
-      r = colors[i * 3];
-      g = colors[i * 3 + 1];
-      b = colors[i * 3 + 2];
-    }
-
-    let si0 = 0,
-      si1 = 0,
-      si2 = 0,
-      si3 = 0;
-    if (hasSkinIndex) {
-      si0 = skinIndices[i * 4];
-      si1 = skinIndices[i * 4 + 1];
-      si2 = skinIndices[i * 4 + 2];
-      si3 = skinIndices[i * 4 + 3];
-    }
-
-    let sw0 = 0,
-      sw1 = 0,
-      sw2 = 0,
-      sw3 = 0;
-    if (hasSkinWeight) {
-      sw0 = skinWeights[i * 4];
-      sw1 = skinWeights[i * 4 + 1];
-      sw2 = skinWeights[i * 4 + 2];
-      sw3 = skinWeights[i * 4 + 3];
-    }
-
-    const hx = Math.round(px * 1e4);
-    const hy = Math.round(py * 1e4);
-    const hz = Math.round(pz * 1e4);
-    const hnx = Math.round(nx * 1e4);
-    const hny = Math.round(ny * 1e4);
-    const hnz = Math.round(nz * 1e4);
-
-    let hash = `${hx}_${hy}_${hz}_${hnx}_${hny}_${hnz}`;
-    if (hasColor) {
-      const hr = Math.round(r * 1e4);
-      const hg = Math.round(g * 1e4);
-      const hb = Math.round(b * 1e4);
-      hash += `_${hr}_${hg}_${hb}`;
-    }
-    if (hasSkinIndex) {
-      hash += `_${si0}_${si1}_${si2}_${si3}`;
-    }
-    if (hasSkinWeight) {
-      const hw0 = Math.round(sw0 * 1e3);
-      const hw1 = Math.round(sw1 * 1e3);
-      const hw2 = Math.round(sw2 * 1e3);
-      const hw3 = Math.round(sw3 * 1e3);
-      hash += `_${hw0}_${hw1}_${hw2}_${hw3}`;
+    const attrValues = {};
+    for (let j = 0; j < semantics.length; j++) {
+      const sem = semantics[j];
+      const elementSize = attrElementSizes[j];
+      const arr = attrArrays[j];
+      const val = [];
+      for (let c = 0; c < elementSize; c++) {
+        const v = arr[i * elementSize + c];
+        val.push(v);
+        hash += `${Math.round(v * 1e4)}_`;
+      }
+      attrValues[sem] = val;
     }
 
     let idx = vertexHash.get(hash);
     if (idx === undefined) {
       idx = nextVertexIndex++;
       vertexHash.set(hash, idx);
-      weldedPositions.push(px, py, pz);
-      if (hasColor) weldedColors.push(r, g, b);
       weldedNormals.push(nx, ny, nz);
-      if (hasSkinIndex) weldedSkinIndices.push(si0, si1, si2, si3);
-      if (hasSkinWeight) weldedSkinWeights.push(sw0, sw1, sw2, sw3);
+      for (const sem of semantics) {
+        const vals = attrValues[sem];
+        for (let v = 0; v < vals.length; v++) {
+          weldedArrays[sem].push(vals[v]);
+        }
+      }
     }
     indices.push(idx);
   }
 
-  const newGeometry = new THREE.BufferGeometry();
-  newGeometry.setAttribute(
-    "position",
-    new THREE.Float32BufferAttribute(weldedPositions, 3),
-  );
-  if (hasColor) {
-    newGeometry.setAttribute(
-      "color",
-      new THREE.Float32BufferAttribute(weldedColors, 3),
-    );
-  }
-  newGeometry.setAttribute(
-    "normal",
-    new THREE.Float32BufferAttribute(weldedNormals, 3),
-  );
-  if (hasSkinIndex) {
-    newGeometry.setAttribute(
-      "skinIndex",
-      new THREE.Uint16BufferAttribute(weldedSkinIndices, 4),
-    );
-  }
-  if (hasSkinWeight) {
-    newGeometry.setAttribute(
-      "skinWeight",
-      new THREE.Float32BufferAttribute(weldedSkinWeights, 4),
-    );
-  }
+  const buffer = document.getRoot().listBuffers()[0] || document.createBuffer();
 
-  newGeometry.setIndex(indices);
+  // Create normal accessor if it doesn't exist, otherwise replace
+  let normalAccessor = primitive.getAttribute("NORMAL");
+  if (!normalAccessor) {
+    normalAccessor = document
+      .createAccessor()
+      .setType("VEC3")
+      .setBuffer(buffer);
+    primitive.setAttribute("NORMAL", normalAccessor);
+  }
+  normalAccessor.setArray(new Float32Array(weldedNormals));
 
-  if (nonIndexed.groups && nonIndexed.groups.length > 0) {
-    for (const g of nonIndexed.groups) {
-      newGeometry.addGroup(g.start, g.count, g.materialIndex);
-    }
+  // Replace other accessors with welded data
+  for (let j = 0; j < semantics.length; j++) {
+    const sem = semantics[j];
+    const oldAccessor = accessors[j];
+    const newAccessor = document
+      .createAccessor()
+      .setType(oldAccessor.getType())
+      .setBuffer(buffer);
+
+    const ArrayType = oldAccessor.getArray().constructor;
+    newAccessor.setArray(new ArrayType(weldedArrays[sem]));
+
+    primitive.setAttribute(sem, newAccessor);
   }
 
-  nonIndexed.dispose();
+  // Create/Replace index accessor
+  const IndexArrayType = nextVertexIndex > 65535 ? Uint32Array : Uint16Array;
+  const indexAccessor = document
+    .createAccessor()
+    .setType("SCALAR")
+    .setBuffer(buffer)
+    .setArray(new IndexArrayType(indices));
 
-  return newGeometry;
+  primitive.setIndices(indexAccessor);
+}
+
+// --- Helper logic ---
+function uint8ArrayToBase64(u8a) {
+  if (typeof Buffer !== "undefined") return Buffer.from(u8a).toString("base64");
+  let binary = "";
+  const chunkSize = 8192;
+  for (let i = 0; i < u8a.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, u8a.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
 }
 
 // --- Caching Logic ---
@@ -318,102 +276,6 @@ async function saveToBrowserCache(requestUrl, data, binary) {
   }
 }
 
-function performAutoSmooth(rawGltfData, creaseAngle, binary) {
-  return new Promise((resolve, reject) => {
-    const loader = new GLTFLoader();
-    let parseData = rawGltfData;
-    if (rawGltfData instanceof Uint8Array) {
-      parseData = rawGltfData.buffer.slice(
-        rawGltfData.byteOffset,
-        rawGltfData.byteOffset + rawGltfData.byteLength,
-      );
-    }
-
-    loader.parse(
-      parseData,
-      "",
-      (gltf) => {
-        const scene = gltf.scene;
-
-        scene.traverse((child) => {
-          if (child.isMesh && child.geometry) {
-            const oldGeom = child.geometry;
-            child.geometry = autoSmoothGeometry(oldGeom, creaseAngle);
-            oldGeom.dispose();
-
-            if (child.material) {
-              const makeSmooth = (m) => {
-                m.flatShading = false;
-                m.needsUpdate = true;
-              };
-              if (Array.isArray(child.material))
-                child.material.forEach(makeSmooth);
-              else makeSmooth(child.material);
-            }
-          }
-        });
-
-        const exporter = new GLTFExporter();
-        const exportOptions = {
-          binary: binary,
-          animations: gltf.animations || [],
-        };
-
-        exporter.parse(
-          scene,
-          (processedData) => {
-            if (binary) {
-              resolve(new Uint8Array(processedData));
-            } else {
-              resolve(JSON.stringify(processedData, null, 2));
-            }
-          },
-          (error) => reject(error),
-          exportOptions,
-        );
-      },
-      reject,
-    );
-  });
-}
-
-/**
- * Handles applying meshopt compression via gltf-transform
- */
-async function performCompression(gltfData, binary) {
-  // Wait for the WebAssembly bindings to initialize
-  await MeshoptEncoder.ready;
-  await MeshoptDecoder.ready;
-
-  // Initialize glTF-Transform's WebIO, applying ALL standard extensions
-  // so that PBR extensions (Clearcoat, Transmission, etc.) aren't stripped out.
-  const io = new WebIO()
-    .registerExtensions(KHRONOS_EXTENSIONS)
-    .registerDependencies({
-      "meshopt.encoder": MeshoptEncoder,
-      "meshopt.decoder": MeshoptDecoder,
-    });
-
-  let dataToRead = gltfData;
-  if (typeof dataToRead === "string") {
-    dataToRead = new TextEncoder().encode(dataToRead);
-  }
-
-  // Parses safely into a Document structure
-  const document = await io.readBinary(dataToRead);
-
-  // Apply the Meshopt transform to iteratively compress geometry/animations over the scene graph
-  await document.transform(
-    meshopt({ encoder: MeshoptEncoder, level: "medium" }),
-  );
-
-  // Note: We force a binary representation since compression packs the geometry down into .glb chunks
-  if (!binary) {
-    console.warn("Meshopt compression forces binary output. Outputting GLB.");
-  }
-  return await io.writeBinary(document);
-}
-
 /**
  * Compiles SCAD to GLTF, applying caching, auto-smooth, and compression.
  * @param {string} scadCode - The raw SCAD input.
@@ -454,34 +316,82 @@ export async function processScad(scadCode, options = {}) {
       }
 
       let resultData;
-      // We force a binary output whenever we need to perform extra transforms,
-      // as `gltf-transform` and our pipeline operates cleanly with `.glb` binaries.
+      // We force a binary output whenever we need to perform extra transforms natively via `convertScadToGltf`
       const requireBinaryIntermediate = autoSmooth || compression || binary;
 
-      if (!autoSmooth) {
+      if (!autoSmooth && !compression) {
         resultData = await convertScadToGltf(scadCode, {
           wasmUrl,
           binary: requireBinaryIntermediate,
         });
       } else {
-        // Fetch raw binary GLB first, recursively ignoring inner `autoSmooth`
-        const rawGltfData = await processScad(scadCode, {
+        // Fetch raw binary GLB first, recursively ignoring inner modifiers
+        // so that the un-smoothed/un-compressed base is heavily cached.
+        resultData = await processScad(scadCode, {
           wasmUrl,
           autoSmooth: false,
           creaseAngle,
           binary: true,
           compression: false,
         });
-        resultData = await performAutoSmooth(
-          rawGltfData,
-          creaseAngle,
-          requireBinaryIntermediate,
-        );
-      }
 
-      // Add Compression Step if requested
-      if (compression) {
-        resultData = await performCompression(resultData, binary);
+        // Initialize transformation processing
+        await MeshoptEncoder.ready;
+        await MeshoptDecoder.ready;
+
+        const io = new WebIO()
+          .registerExtensions(KHRONOS_EXTENSIONS)
+          .registerDependencies({
+            "meshopt.encoder": MeshoptEncoder,
+            "meshopt.decoder": MeshoptDecoder,
+          });
+
+        let dataToRead = resultData;
+        if (typeof dataToRead === "string") {
+          dataToRead = new TextEncoder().encode(dataToRead);
+        }
+
+        const document = await io.readBinary(dataToRead);
+
+        if (autoSmooth) {
+          // Removes indices + unrolls vertices ensuring fully disconnected faces first
+          await document.transform(unweld());
+
+          for (const mesh of document.getRoot().listMeshes()) {
+            for (const primitive of mesh.listPrimitives()) {
+              autoSmoothPrimitive(document, primitive, creaseAngle);
+            }
+          }
+
+          // Discards detached accessors left over from unweld/reweld
+          await document.transform(prune());
+        }
+
+        if (compression) {
+          await document.transform(
+            meshopt({ encoder: MeshoptEncoder, level: "medium" }),
+          );
+        }
+
+        if (binary || compression) {
+          if (compression && !binary) {
+            console.warn(
+              "Meshopt compression forces binary output. Outputting GLB.",
+            );
+          }
+          resultData = await io.writeBinary(document);
+        } else {
+          // Exporting as a completely standalone textual .gltf
+          const { json, resources } = await io.writeJSON(document);
+          for (const buffer of json.buffers || []) {
+            if (resources[buffer.uri]) {
+              const u8a = resources[buffer.uri];
+              const base64 = uint8ArrayToBase64(u8a);
+              buffer.uri = `data:application/octet-stream;base64,${base64}`;
+            }
+          }
+          resultData = JSON.stringify(json, null, 2);
+        }
       }
 
       if (browserCacheUrl) {
