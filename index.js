@@ -261,33 +261,58 @@ function autoSmoothGeometry(geometry, creaseAngle) {
   return newGeometry;
 }
 
+// --- Caching Logic ---
+const memoryCache = new Map();
+const CACHE_NAME = "openscad-gltf-v1";
+
 /**
- * Compiles SCAD to GLTF, applying caching, auto-smooth, and compression.
- * @param {string} scadCode - The raw SCAD input.
- * @param {Object} options - Configuration options.
- * @returns {Promise<Uint8Array | string>} Final GLTF data.
+ * Clears the internally cached and browser-cached GLTF/GLB files
  */
-export async function processScad(scadCode, options = {}) {
-  const {
-    wasmUrl,
-    autoSmooth = false,
-    creaseAngle = Math.PI / 6,
-    binary = true,
-  } = options;
-
-  // 1. If NO auto-smooth, just let the original compiler do exactly what the user asked for.
-  if (!autoSmooth) {
-    return await convertScadToGltf(scadCode, { wasmUrl, binary });
+export function clearCache() {
+  memoryCache.clear();
+  if (typeof caches !== "undefined") {
+    caches.delete(CACHE_NAME).catch(() => {});
   }
+}
 
-  // 2. Post-Process (Auto-Smooth) requires Three.js to parse the mesh.
-  // We force WASM to give us a GLB (binary: true) here because it is self-contained
-  // and easy for GLTFLoader to parse straight from memory.
-  const rawGltfData = await convertScadToGltf(scadCode, {
-    wasmUrl,
-    binary: true,
-  });
+async function getFromBrowserCache(requestUrl) {
+  if (typeof caches === "undefined") return null;
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    const response = await cache.match(requestUrl);
+    if (!response) return null;
 
+    const isBinary =
+      response.headers.get("Content-Type") === "application/octet-stream";
+    if (isBinary) {
+      const buffer = await response.arrayBuffer();
+      return new Uint8Array(buffer);
+    } else {
+      return await response.text();
+    }
+  } catch (err) {
+    return null;
+  }
+}
+
+async function saveToBrowserCache(requestUrl, data, binary) {
+  if (typeof caches === "undefined") return;
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    const response = new Response(data, {
+      headers: {
+        "Content-Type": binary
+          ? "application/octet-stream"
+          : "application/json",
+      },
+    });
+    await cache.put(requestUrl, response);
+  } catch (err) {
+    // Silently ignore quota exceeded or other cache errors
+  }
+}
+
+function performAutoSmooth(rawGltfData, creaseAngle, binary) {
   return new Promise((resolve, reject) => {
     const loader = new GLTFLoader();
     const arrayBuffer = rawGltfData.buffer.slice(
@@ -301,7 +326,6 @@ export async function processScad(scadCode, options = {}) {
       (gltf) => {
         const scene = gltf.scene;
 
-        // Apply smoothing to all meshes
         scene.traverse((child) => {
           if (child.isMesh && child.geometry) {
             const oldGeom = child.geometry;
@@ -320,7 +344,6 @@ export async function processScad(scadCode, options = {}) {
           }
         });
 
-        // Export back to the requested format (GLTF JSON or GLB)
         const exporter = new GLTFExporter();
         const exportOptions = {
           binary: binary,
@@ -330,7 +353,6 @@ export async function processScad(scadCode, options = {}) {
         exporter.parse(
           scene,
           (processedData) => {
-            // GLTFExporter returns an ArrayBuffer for binary, and a JSON object for text
             if (binary) {
               resolve(new Uint8Array(processedData));
             } else {
@@ -344,4 +366,83 @@ export async function processScad(scadCode, options = {}) {
       reject,
     );
   });
+}
+
+/**
+ * Compiles SCAD to GLTF, applying caching, auto-smooth, and compression.
+ * @param {string} scadCode - The raw SCAD input.
+ * @param {Object} options - Configuration options.
+ * @returns {Promise<Uint8Array | string>} Final GLTF data.
+ */
+export async function processScad(scadCode, options = {}) {
+  const {
+    wasmUrl,
+    autoSmooth = false,
+    creaseAngle = Math.PI / 6,
+    binary = true,
+  } = options;
+
+  // In-memory cache key (synchronous to prevent race conditions during multiple identical calls)
+  const memKey = `${binary}|${autoSmooth}|${creaseAngle}|${scadCode}`;
+
+  if (!memoryCache.has(memKey)) {
+    const promise = (async () => {
+      let browserCacheUrl = null;
+
+      // Attempt to generate a stable URL for the Browser Cache API
+      // Note: crypto.subtle is only available in secure contexts (HTTPS or localhost)
+      if (typeof crypto !== "undefined" && crypto.subtle) {
+        try {
+          const msgBuffer = new TextEncoder().encode(scadCode);
+          const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
+          const hashArray = Array.from(new Uint8Array(hashBuffer));
+          const hashHex = hashArray
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join("");
+          browserCacheUrl = `https://scad-cache.local/model/${hashHex}?autoSmooth=${autoSmooth}&creaseAngle=${creaseAngle}&binary=${binary}`;
+
+          const cachedData = await getFromBrowserCache(browserCacheUrl);
+          if (cachedData) return cachedData;
+        } catch (e) {
+          // Ignore crypto or cache failures and fall back to manual processing
+        }
+      }
+
+      let resultData;
+      if (!autoSmooth) {
+        resultData = await convertScadToGltf(scadCode, { wasmUrl, binary });
+      } else {
+        // Get the raw binary GLB first (this will automatically hit memory/browser cache as well!)
+        const rawGltfData = await processScad(scadCode, {
+          wasmUrl,
+          autoSmooth: false,
+          creaseAngle, // passed along, but irrelevant for autoSmooth=false
+          binary: true,
+        });
+        resultData = await performAutoSmooth(rawGltfData, creaseAngle, binary);
+      }
+
+      if (browserCacheUrl) {
+        await saveToBrowserCache(browserCacheUrl, resultData, binary);
+      }
+
+      return resultData;
+    })();
+
+    memoryCache.set(memKey, promise);
+    promise.catch(() => memoryCache.delete(memKey)); // Remove on failure
+  }
+
+  const result = await memoryCache.get(memKey);
+
+  // Return a clone for binary data to prevent the caller from detaching the cached ArrayBuffer
+  if (result instanceof Uint8Array) {
+    return new Uint8Array(
+      result.buffer.slice(
+        result.byteOffset,
+        result.byteOffset + result.byteLength,
+      ),
+    );
+  }
+  return result;
 }
