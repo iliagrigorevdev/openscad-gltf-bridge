@@ -225,59 +225,8 @@ function uint8ArrayToBase64(u8a) {
   return btoa(binary);
 }
 
-// --- Caching Logic ---
-const memoryCache = new Map();
-const CACHE_NAME = "openscad-gltf-v1";
-
 /**
- * Clears the internally cached and browser-cached GLTF/GLB files
- */
-export function clearCache() {
-  memoryCache.clear();
-  if (typeof caches !== "undefined") {
-    caches.delete(CACHE_NAME).catch(() => {});
-  }
-}
-
-async function getFromBrowserCache(requestUrl) {
-  if (typeof caches === "undefined") return null;
-  try {
-    const cache = await caches.open(CACHE_NAME);
-    const response = await cache.match(requestUrl);
-    if (!response) return null;
-
-    const isBinary =
-      response.headers.get("Content-Type") === "application/octet-stream";
-    if (isBinary) {
-      const buffer = await response.arrayBuffer();
-      return new Uint8Array(buffer);
-    } else {
-      return await response.text();
-    }
-  } catch (err) {
-    return null;
-  }
-}
-
-async function saveToBrowserCache(requestUrl, data, binary) {
-  if (typeof caches === "undefined") return;
-  try {
-    const cache = await caches.open(CACHE_NAME);
-    const response = new Response(data, {
-      headers: {
-        "Content-Type": binary
-          ? "application/octet-stream"
-          : "application/json",
-      },
-    });
-    await cache.put(requestUrl, response);
-  } catch (err) {
-    // Silently ignore quota exceeded or other cache errors
-  }
-}
-
-/**
- * Compiles SCAD to GLTF, applying caching, auto-smooth, and compression.
+ * Compiles SCAD to GLTF, applying optional auto-smooth and compression.
  * @param {string} scadCode - The raw SCAD input.
  * @param {Object} options - Configuration options.
  * @returns {Promise<Uint8Array | string>} Final GLTF data.
@@ -291,129 +240,75 @@ export async function processScad(scadCode, options = {}) {
     compression = false,
   } = options;
 
-  // In-memory cache key
-  const memKey = `${binary}|${autoSmooth}|${creaseAngle}|${compression}|${scadCode}`;
+  // We force a binary output whenever we need to perform extra transforms natively via `convertScadToGltf`
+  const requireBinaryIntermediate = autoSmooth || compression || binary;
 
-  if (!memoryCache.has(memKey)) {
-    const promise = (async () => {
-      let browserCacheUrl = null;
-
-      if (typeof crypto !== "undefined" && crypto.subtle) {
-        try {
-          const msgBuffer = new TextEncoder().encode(scadCode);
-          const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
-          const hashArray = Array.from(new Uint8Array(hashBuffer));
-          const hashHex = hashArray
-            .map((b) => b.toString(16).padStart(2, "0"))
-            .join("");
-          browserCacheUrl = `https://scad-cache.local/model/${hashHex}?autoSmooth=${autoSmooth}&creaseAngle=${creaseAngle}&binary=${binary}&compression=${compression}`;
-
-          const cachedData = await getFromBrowserCache(browserCacheUrl);
-          if (cachedData) return cachedData;
-        } catch (e) {
-          // Ignore crypto or cache failures
-        }
-      }
-
-      let resultData;
-      // We force a binary output whenever we need to perform extra transforms natively via `convertScadToGltf`
-      const requireBinaryIntermediate = autoSmooth || compression || binary;
-
-      if (!autoSmooth && !compression) {
-        resultData = await convertScadToGltf(scadCode, {
-          wasmUrl,
-          binary: requireBinaryIntermediate,
-        });
-      } else {
-        // Fetch raw binary GLB first, recursively ignoring inner modifiers
-        // so that the un-smoothed/un-compressed base is heavily cached.
-        resultData = await processScad(scadCode, {
-          wasmUrl,
-          autoSmooth: false,
-          creaseAngle,
-          binary: true,
-          compression: false,
-        });
-
-        // Initialize transformation processing
-        await MeshoptEncoder.ready;
-        await MeshoptDecoder.ready;
-
-        const io = new WebIO()
-          .registerExtensions(KHRONOS_EXTENSIONS)
-          .registerDependencies({
-            "meshopt.encoder": MeshoptEncoder,
-            "meshopt.decoder": MeshoptDecoder,
-          });
-
-        let dataToRead = resultData;
-        if (typeof dataToRead === "string") {
-          dataToRead = new TextEncoder().encode(dataToRead);
-        }
-
-        const document = await io.readBinary(dataToRead);
-
-        if (autoSmooth) {
-          // Removes indices + unrolls vertices ensuring fully disconnected faces first
-          await document.transform(unweld());
-
-          for (const mesh of document.getRoot().listMeshes()) {
-            for (const primitive of mesh.listPrimitives()) {
-              autoSmoothPrimitive(document, primitive, creaseAngle);
-            }
-          }
-
-          // Discards detached accessors left over from unweld/reweld
-          await document.transform(prune());
-        }
-
-        if (compression) {
-          await document.transform(
-            meshopt({ encoder: MeshoptEncoder, level: "medium" }),
-          );
-        }
-
-        if (binary || compression) {
-          if (compression && !binary) {
-            console.warn(
-              "Meshopt compression forces binary output. Outputting GLB.",
-            );
-          }
-          resultData = await io.writeBinary(document);
-        } else {
-          // Exporting as a completely standalone textual .gltf
-          const { json, resources } = await io.writeJSON(document);
-          for (const buffer of json.buffers || []) {
-            if (resources[buffer.uri]) {
-              const u8a = resources[buffer.uri];
-              const base64 = uint8ArrayToBase64(u8a);
-              buffer.uri = `data:application/octet-stream;base64,${base64}`;
-            }
-          }
-          resultData = JSON.stringify(json, null, 2);
-        }
-      }
-
-      if (browserCacheUrl) {
-        await saveToBrowserCache(browserCacheUrl, resultData, binary);
-      }
-
-      return resultData;
-    })();
-
-    memoryCache.set(memKey, promise);
-    promise.catch(() => memoryCache.delete(memKey)); // Remove on failure
+  if (!autoSmooth && !compression) {
+    return await convertScadToGltf(scadCode, {
+      wasmUrl,
+      binary: requireBinaryIntermediate,
+    });
   }
 
-  const result = await memoryCache.get(memKey);
+  // Fetch raw binary GLB first directly via WASM
+  const rawResultData = await convertScadToGltf(scadCode, {
+    wasmUrl,
+    binary: true,
+  });
 
-  if (result instanceof Uint8Array) {
-    return new Uint8Array(
-      result.buffer.slice(
-        result.byteOffset,
-        result.byteOffset + result.byteLength,
-      ),
+  // Initialize transformation processing
+  await MeshoptEncoder.ready;
+  await MeshoptDecoder.ready;
+
+  const io = new WebIO()
+    .registerExtensions(KHRONOS_EXTENSIONS)
+    .registerDependencies({
+      "meshopt.encoder": MeshoptEncoder,
+      "meshopt.decoder": MeshoptDecoder,
+    });
+
+  let dataToRead = rawResultData;
+  if (typeof dataToRead === "string") {
+    dataToRead = new TextEncoder().encode(dataToRead);
+  }
+
+  const document = await io.readBinary(dataToRead);
+
+  if (autoSmooth) {
+    // Removes indices + unrolls vertices ensuring fully disconnected faces first
+    await document.transform(unweld());
+
+    for (const mesh of document.getRoot().listMeshes()) {
+      for (const primitive of mesh.listPrimitives()) {
+        autoSmoothPrimitive(document, primitive, creaseAngle);
+      }
+    }
+
+    // Discards detached accessors left over from unweld/reweld
+    await document.transform(prune());
+  }
+
+  if (compression) {
+    await document.transform(
+      meshopt({ encoder: MeshoptEncoder, level: "medium" }),
     );
   }
-  return result;
+
+  if (binary || compression) {
+    if (compression && !binary) {
+      console.warn("Meshopt compression forces binary output. Outputting GLB.");
+    }
+    return await io.writeBinary(document);
+  } else {
+    // Exporting as a completely standalone textual .gltf
+    const { json, resources } = await io.writeJSON(document);
+    for (const buffer of json.buffers || []) {
+      if (resources[buffer.uri]) {
+        const u8a = resources[buffer.uri];
+        const base64 = uint8ArrayToBase64(u8a);
+        buffer.uri = `data:application/octet-stream;base64,${base64}`;
+      }
+    }
+    return JSON.stringify(json, null, 2);
+  }
 }
