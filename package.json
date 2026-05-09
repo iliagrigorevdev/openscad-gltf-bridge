@@ -1,0 +1,12 @@
+{
+  "name": "openscad-gltf-bridge",
+  "version": "0.1.2",
+  "type": "module",
+  "main": "index.js",
+  "dependencies": {
+    "openscad-gltf-wasm": "github:iliagrigorevdev/openscad-gltf-wasm"
+  },
+  "peerDependencies": {
+    "three": ">=0.160.0"
+  }
+}
