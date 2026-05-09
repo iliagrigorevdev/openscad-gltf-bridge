@@ -50,7 +50,8 @@ function computeSmoothNormals(positions, creaseAngle) {
     }
   }
 
-  const cosAngle = Math.cos(creaseAngle);
+  // Convert degrees to radians for the cosine check
+  const cosAngle = Math.cos(creaseAngle * (Math.PI / 180));
 
   for (const list of hashToVertices.values()) {
     const adj = Array.from({ length: list.length }, () => []);
@@ -378,7 +379,7 @@ export async function processScad(scadCode, options = {}) {
   const {
     wasmUrl,
     autoSmooth = false,
-    creaseAngle = Math.PI / 6,
+    creaseAngle = 30, // Default to 30 degrees
     binary = true,
   } = options;
 
