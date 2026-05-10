@@ -4,6 +4,8 @@ A powerful JavaScript bridge for compiling OpenSCAD (`.scad`) directly to **glTF
 
 This package wraps the [openscad-gltf-wasm](https://github.com/iliagrigorevdev/openscad-gltf-wasm) engine and enhances it using [`@gltf-transform`](https://gltf-transform.dev/) and [`meshoptimizer`](https://github.com/zeux/meshoptimizer). Standard OpenSCAD exports models with flat faceted normals; this bridge introduces **Auto-Smoothing** (via crease angles) and **Meshopt Compression**, resulting in beautiful, web-ready 3D assets.
 
+**🌐 Live Demo:** Try the online viewer based on this package here: [openscad-gltf-viewer](https://iliagrigorevdev.github.io/openscad-gltf-viewer/)
+
 ## Features
 
 - **CLI Batch Builder:** Automate the build process for multiple assets using a simple `scad.config.js` file.
