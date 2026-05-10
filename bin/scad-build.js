@@ -23,8 +23,13 @@ global.fetch = async (url) => {
 };
 
 async function run() {
+  // Parse simple CLI arguments for flags and config names
+  const args = process.argv.slice(2);
+  const forceRebuild = args.includes("--force");
+  const configFileName =
+    args.find((a) => !a.startsWith("--")) || "scad.config.js";
+
   // 3. Find the config file in the user's project root
-  const configFileName = process.argv[2] || "scad.config.js";
   const configPath = path.resolve(process.cwd(), configFileName);
 
   if (!fs.existsSync(configPath)) {
@@ -32,6 +37,9 @@ async function run() {
     console.log(`Please create a scad.config.js file in your project root.`);
     process.exit(1);
   }
+
+  // Get the modification time of the configuration file itself
+  const configStat = fs.statSync(configPath);
 
   // 4. Import the user's config
   const configModule = await import(pathToFileURL(configPath).href);
@@ -60,6 +68,22 @@ async function run() {
     if (!fs.existsSync(inputPath)) {
       console.warn(`⚠️  Input file missing, skipping: ${inputPath}`);
       continue;
+    }
+
+    // --- OPTIMIZATION LOGIC ---
+    // Skip building if output exists, unless forced
+    if (!forceRebuild && fs.existsSync(outputPath)) {
+      const inputStat = fs.statSync(inputPath);
+      const outputStat = fs.statSync(outputPath);
+
+      // If output file is newer than BOTH the input .scad file and the config file, skip
+      if (
+        outputStat.mtimeMs >= inputStat.mtimeMs &&
+        outputStat.mtimeMs >= configStat.mtimeMs
+      ) {
+        console.log(`⏩ Skipping ${path.basename(asset.input)} (up-to-date)`);
+        continue;
+      }
     }
 
     console.log(`Processing ${path.basename(asset.input)}...`);
