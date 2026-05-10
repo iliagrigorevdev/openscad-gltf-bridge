@@ -10,6 +10,7 @@ This package wraps the [openscad-gltf-wasm](https://github.com/iliagrigorevdev/o
 - **Direct Compilation:** Converts SCAD to GLB/glTF completely in JS (Node.js or Browser).
 - **Auto-Smoothing:** Automatically computes smooth vertex normals for your geometry based on a customizable crease angle threshold.
 - **Meshopt Compression:** Drastically reduces final file sizes using `EXT_meshopt_compression` via `meshoptimizer`.
+- **Resizing Models:** Instantly resize models via the built-in scaler parameter. Highly useful for converting OpenSCAD's default millimeter unit scale directly to standard glTF meters (e.g. `resize: 0.001`).
 - **Flexible Output:** Export as a binary `.glb` (`Uint8Array`) or a completely self-contained textual `.gltf` (JSON string with inline base64 buffers).
 - **Inherited Power:** Supports all the custom PBR materials and skeletal animations introduced by `openscad-gltf-wasm`.
 
@@ -49,6 +50,7 @@ export default {
       input: "./assets/SpaceShip.scad", // Automatically outputs to ./public/models/SpaceShip.glb
       options: {
         autoSmooth: false,
+        resize: 0.001, // Convert OpenSCAD's default millimeter scale down to standard glTF meters
       },
     },
     {
@@ -64,6 +66,7 @@ export default {
       output: "CustomPlanetName.glb", // You can still manually override the output name
       options: {
         autoSmooth: true,
+        resize: [2, 2, 2], // Scale x2 uniformly. Non-uniform scaling is also supported e.g., [2, 1, 1]
       },
     },
   ],
@@ -116,12 +119,13 @@ const scadCode = `
 `;
 
 async function build() {
-  // Compile, smooth the normals, and compress the output!
+  // Compile, scale to meters, smooth normals, and compress output!
   const gltfData = await processScad(scadCode, {
     wasmUrl: `file://${wasmPath}`,
     autoSmooth: true,
     creaseAngle: 30,
     compression: true,
+    resize: 0.001,
     binary: true,
   });
 
@@ -167,13 +171,14 @@ const gltfData = await processScad(scadCode, {
 
 #### Options
 
-| Option        | Type      | Default     | Description                                                                                                                                                  |
-| ------------- | --------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `wasmUrl`     | `string`  | `undefined` | URL to the Emscripten WASM file. Required so the engine knows where to load the binary.                                                                      |
-| `autoSmooth`  | `boolean` | `false`     | Unwelds geometry, computes smooth vertex normals based on `creaseAngle`, and rewields. Fixes OpenSCAD's default "flat/faceted" look.                         |
-| `creaseAngle` | `number`  | `30`        | Angle threshold (in degrees) for auto-smoothing. Faces with an angle less than this will be smoothed together.                                               |
-| `compression` | `boolean` | `false`     | Applies Meshopt compression (`EXT_meshopt_compression`). _Note: This forces a binary output._                                                                |
-| `binary`      | `boolean` | `true`      | If `true`, returns a `.glb` as a `Uint8Array`. If `false` (and compression is off), returns a standalone `.gltf` string with inline base64 embedded buffers. |
+| Option        | Type                 | Default     | Description                                                                                                                                                                                    |
+| ------------- | -------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wasmUrl`     | `string`             | `undefined` | URL to the Emscripten WASM file. Required so the engine knows where to load the binary.                                                                                                        |
+| `autoSmooth`  | `boolean`            | `false`     | Unwelds geometry, computes smooth vertex normals based on `creaseAngle`, and rewields. Fixes OpenSCAD's default "flat/faceted" look.                                                           |
+| `creaseAngle` | `number`             | `30`        | Angle threshold (in degrees) for auto-smoothing. Faces with an angle less than this will be smoothed together.                                                                                 |
+| `resize`      | `number \| number[]` | `undefined` | Resizes the model graph. Multiplier to scale the root node. Useful for converting OpenSCAD's default millimeters to glTF's default meters (e.g. `0.001`) or non-uniform scaling (`[x, y, z]`). |
+| `compression` | `boolean`            | `false`     | Applies Meshopt compression (`EXT_meshopt_compression`). _Note: This forces a binary output._                                                                                                  |
+| `binary`      | `boolean`            | `true`      | If `true`, returns a `.glb` as a `Uint8Array`. If `false` (and compression is off), returns a standalone `.gltf` string with inline base64 embedded buffers.                                   |
 
 ## Why use this over `openscad-gltf-wasm`?
 

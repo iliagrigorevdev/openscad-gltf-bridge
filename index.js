@@ -226,7 +226,7 @@ function uint8ArrayToBase64(u8a) {
 }
 
 /**
- * Compiles SCAD to GLTF, applying optional auto-smooth and compression.
+ * Compiles SCAD to GLTF, applying optional auto-smooth, compression, and resizing.
  * @param {string} scadCode - The raw SCAD input.
  * @param {Object} options - Configuration options.
  * @returns {Promise<Uint8Array | string>} Final GLTF data.
@@ -238,12 +238,14 @@ export async function processScad(scadCode, options = {}) {
     creaseAngle = 30, // Default to 30 degrees
     binary = true,
     compression = false,
+    resize,
   } = options;
 
   // We force a binary output whenever we need to perform extra transforms natively via `convertScadToGltf`
-  const requireBinaryIntermediate = autoSmooth || compression || binary;
+  const requireBinaryIntermediate =
+    autoSmooth || compression || binary || resize !== undefined;
 
-  if (!autoSmooth && !compression) {
+  if (!autoSmooth && !compression && resize === undefined) {
     return await convertScadToGltf(scadCode, {
       wasmUrl,
       binary: requireBinaryIntermediate,
@@ -273,6 +275,33 @@ export async function processScad(scadCode, options = {}) {
   }
 
   const document = await io.readBinary(dataToRead);
+
+  if (resize !== undefined) {
+    let sx = 1,
+      sy = 1,
+      sz = 1;
+    if (typeof resize === "number") {
+      sx = sy = sz = resize;
+    } else if (Array.isArray(resize) && resize.length >= 3) {
+      [sx, sy, sz] = resize;
+    }
+
+    const rootNodes = new Set();
+    for (const scene of document.getRoot().listScenes()) {
+      for (const node of scene.listNodes()) {
+        rootNodes.add(node);
+      }
+    }
+
+    for (const node of rootNodes) {
+      const currentScale = node.getScale();
+      node.setScale([
+        currentScale[0] * sx,
+        currentScale[1] * sy,
+        currentScale[2] * sz,
+      ]);
+    }
+  }
 
   if (autoSmooth) {
     // Removes indices + unrolls vertices ensuring fully disconnected faces first
