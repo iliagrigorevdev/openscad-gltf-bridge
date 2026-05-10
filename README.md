@@ -6,6 +6,7 @@ This package wraps the [openscad-gltf-wasm](https://github.com/iliagrigorevdev/o
 
 ## Features
 
+- **CLI Batch Builder:** Automate the build process for multiple assets using a simple `scad.config.js` file.
 - **Direct Compilation:** Converts SCAD to GLB/glTF completely in JS (Node.js or Browser).
 - **Auto-Smoothing:** Automatically computes smooth vertex normals for your geometry based on a customizable crease angle threshold.
 - **Meshopt Compression:** Drastically reduces final file sizes using `EXT_meshopt_compression` via `meshoptimizer`.
@@ -14,26 +15,86 @@ This package wraps the [openscad-gltf-wasm](https://github.com/iliagrigorevdev/o
 
 ## Installation
 
+Choose the installation method that fits your workflow:
+
+### 1. For Asset Generation (CLI Workflow)
+
+If you only need to generate 3D assets during your project's build process, install it as a **development dependency**. This ensures the OpenSCAD engine is not included in your final production bundle.
+
+```bash
+npm install --save-dev github:iliagrigorevdev/openscad-gltf-bridge
+```
+
+### 2. For Runtime Integration (Library Workflow)
+
+If you are building a CAD tool or a web app that compiles OpenSCAD code on-the-fly in the browser or on a server, install it as a **regular dependency**.
+
 ```bash
 npm install github:iliagrigorevdev/openscad-gltf-bridge
 ```
 
 ## Usage
 
-### Usage in Node.js
+### Usage via CLI (Recommended)
 
-Because the underlying WebAssembly module expects a browser environment, it tries to use `fetch()` to load the `.wasm` file. In Node.js, `fetch` does not support local `file://` paths.
+The easiest way to process multiple files in a project without writing boilerplate Node.js scripts is using the built-in `scad-build` CLI. It automatically handles WASM loading and file reading for you!
 
-To bypass this, we provide the absolute path to the `.wasm` file and briefly mock `global.fetch` to read the file from disk using Node's `fs` module:
+1. Create a `scad.config.js` file in your project root:
+
+```javascript
+export default {
+  outDir: "./public/models",
+  assets: [
+    {
+      input: "./assets/SpaceShip.scad", // Automatically outputs to ./public/models/SpaceShip.glb
+      options: {
+        autoSmooth: false,
+      },
+    },
+    {
+      input: "./assets/Alien.scad", // Automatically outputs to ./public/models/Alien.glb
+      options: {
+        autoSmooth: true,
+        creaseAngle: 30,
+        compression: true,
+      },
+    },
+    {
+      input: "./assets/Planet.scad",
+      output: "CustomPlanetName.glb", // You can still manually override the output name
+      options: {
+        autoSmooth: true,
+      },
+    },
+  ],
+};
+```
+
+2. Run the build command:
+
+```bash
+npx scad-build
+
+# Or, optionally specify a custom config file:
+# npx scad-build custom-scad.config.js
+```
+
+### Usage in Node.js (Manual)
+
+If you prefer to write your own build scripts, note that the underlying WebAssembly module expects a browser environment and tries to use `fetch()` to load the `.wasm` file. In Node.js, `fetch` does not support local `file://` paths.
+
+To bypass this, mock `global.fetch` to read the file from disk using Node's `fs` module:
 
 ```javascript
 import { processScad } from "openscad-gltf-bridge";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { createRequire } from "module";
 
 // 1. Locate the WASM file inside node_modules
-const wasmPath = path.resolve("node_modules/openscad-gltf-wasm/openscad.wasm");
+const require = createRequire(import.meta.url);
+const wasmPath = require.resolve("openscad-gltf-wasm/openscad.wasm");
 
 // 2. Mock fetch to allow the WASM loader to read local files in Node.js
 global.fetch = async (url) => {
@@ -44,7 +105,7 @@ global.fetch = async (url) => {
   const buffer = fs.readFileSync(normalizedPath);
   return new Response(buffer, {
     status: 200,
-    headers: { "Content-Type": "application/wasm" }
+    headers: { "Content-Type": "application/wasm" },
   });
 };
 
@@ -57,11 +118,11 @@ const scadCode = `
 async function build() {
   // Compile, smooth the normals, and compress the output!
   const gltfData = await processScad(scadCode, {
-    wasmUrl: \`file://\${wasmPath}\`,
+    wasmUrl: `file://${wasmPath}`,
     autoSmooth: true,
     creaseAngle: 30,
     compression: true,
-    binary: true
+    binary: true,
   });
 
   fs.writeFileSync("output.glb", gltfData);
@@ -122,4 +183,4 @@ The base package `openscad-gltf-wasm` is excellent for raw extraction of geometr
 
 ## License
 
-See the `LICENSE` file (GPL-2.0 or later, inheriting from from standard OpenSCAD).
+See the `LICENSE` file (GPL-2.0 or later, inheriting from standard OpenSCAD).
