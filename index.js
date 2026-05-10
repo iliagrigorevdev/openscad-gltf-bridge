@@ -226,7 +226,7 @@ function uint8ArrayToBase64(u8a) {
 }
 
 /**
- * Compiles SCAD to GLTF, applying optional auto-smooth, compression, and resizing.
+ * Compiles SCAD to GLTF, applying optional auto-smooth, compression, and absolute resizing.
  * @param {string} scadCode - The raw SCAD input.
  * @param {Object} options - Configuration options.
  * @returns {Promise<Uint8Array | string>} Final GLTF data.
@@ -276,30 +276,71 @@ export async function processScad(scadCode, options = {}) {
 
   const document = await io.readBinary(dataToRead);
 
-  if (resize !== undefined) {
-    let sx = 1,
-      sy = 1,
-      sz = 1;
-    if (typeof resize === "number") {
-      sx = sy = sz = resize;
-    } else if (Array.isArray(resize) && resize.length >= 3) {
-      [sx, sy, sz] = resize;
-    }
+  // Apply absolute resizing based on bounding box
+  if (typeof resize === "number" && resize > 0) {
+    let minX = Infinity,
+      minY = Infinity,
+      minZ = Infinity;
+    let maxX = -Infinity,
+      maxY = -Infinity,
+      maxZ = -Infinity;
+    let hasGeometry = false;
 
-    const rootNodes = new Set();
-    for (const scene of document.getRoot().listScenes()) {
-      for (const node of scene.listNodes()) {
-        rootNodes.add(node);
+    // SCAD to GLTF inherently generates flattened world-space vertices without nested node transforms
+    for (const mesh of document.getRoot().listMeshes()) {
+      for (const primitive of mesh.listPrimitives()) {
+        const positionAcc = primitive.getAttribute("POSITION");
+        if (!positionAcc) continue;
+
+        const min = positionAcc.getMin([]);
+        const max = positionAcc.getMax([]);
+
+        if (min && min.length >= 3 && max && max.length >= 3) {
+          minX = Math.min(minX, min[0]);
+          minY = Math.min(minY, min[1]);
+          minZ = Math.min(minZ, min[2]);
+          maxX = Math.max(maxX, max[0]);
+          maxY = Math.max(maxY, max[1]);
+          maxZ = Math.max(maxZ, max[2]);
+          hasGeometry = true;
+        } else {
+          const arr = positionAcc.getArray();
+          if (arr) {
+            for (let i = 0; i < arr.length; i += 3) {
+              minX = Math.min(minX, arr[i]);
+              minY = Math.min(minY, arr[i + 1]);
+              minZ = Math.min(minZ, arr[i + 2]);
+              maxX = Math.max(maxX, arr[i]);
+              maxY = Math.max(maxY, arr[i + 1]);
+              maxZ = Math.max(maxZ, arr[i + 2]);
+              hasGeometry = true;
+            }
+          }
+        }
       }
     }
 
-    for (const node of rootNodes) {
-      const currentScale = node.getScale();
-      node.setScale([
-        currentScale[0] * sx,
-        currentScale[1] * sy,
-        currentScale[2] * sz,
-      ]);
+    if (hasGeometry) {
+      const dimX = maxX - minX;
+      const dimY = maxY - minY;
+      const dimZ = maxZ - minZ;
+      const maxDim = Math.max(dimX, dimY, dimZ);
+
+      if (maxDim > 0) {
+        const scaleFactor = resize / maxDim;
+
+        // Apply corrective scale to root nodes
+        for (const scene of document.getRoot().listScenes()) {
+          for (const node of scene.listChildren()) {
+            const currentScale = node.getScale();
+            node.setScale([
+              currentScale[0] * scaleFactor,
+              currentScale[1] * scaleFactor,
+              currentScale[2] * scaleFactor,
+            ]);
+          }
+        }
+      }
     }
   }
 
