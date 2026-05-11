@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from "fs";
 import path from "path";
-import { fileURLToPath, pathToFileURL } from "url";
+import { fileURLToPath } from "url";
 import { createRequire } from "module";
 import { processScad } from "../index.js";
 
@@ -27,23 +27,22 @@ async function run() {
   const args = process.argv.slice(2);
   const forceRebuild = args.includes("--force");
   const configFileName =
-    args.find((a) => !a.startsWith("--")) || "scad.config.js";
+    args.find((a) => !a.startsWith("--")) || "scad.config.json";
 
   // 3. Find the config file in the user's project root
   const configPath = path.resolve(process.cwd(), configFileName);
 
   if (!fs.existsSync(configPath)) {
     console.error(`❌ Config file not found: ${configPath}`);
-    console.log(`Please create a scad.config.js file in your project root.`);
+    console.log(`Please create a scad.config.json file in your project root.`);
     process.exit(1);
   }
 
   // Get the modification time of the configuration file itself
   const configStat = fs.statSync(configPath);
 
-  // 4. Import the user's config
-  const configModule = await import(pathToFileURL(configPath).href);
-  const config = configModule.default || configModule;
+  // 4. Parse the user's config
+  const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 
   const outDir = path.resolve(process.cwd(), config.outDir || "./public");
   if (!fs.existsSync(outDir)) {

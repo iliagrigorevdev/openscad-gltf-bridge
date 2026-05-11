@@ -8,12 +8,12 @@ This package wraps the [openscad-gltf-wasm](https://github.com/iliagrigorevdev/o
 
 ## Features
 
-- **CLI Batch Builder:** Automate the build process for multiple assets using a simple `scad.config.js` file.
+- **CLI Batch Builder:** Automate the build process for multiple assets using a simple `scad.config.json` file.
 - **Direct Compilation:** Converts SCAD to GLB/glTF completely in JS (Node.js or Browser).
 - **Auto-Smoothing:** Automatically computes smooth vertex normals for your geometry based on a customizable crease angle threshold.
 - **Meshopt Compression:** Drastically reduces final file sizes using `EXT_meshopt_compression` via `meshoptimizer`.
 - **Absolute Resizing:** Need consistent scales? Set the `resize` parameter to uniformly scale the entire model so its largest dimension natively equals a fixed real-world value (like standardizing models to exactly 5 meters wide).
-- **Flexible Output:** Export as a binary `.glb` (`Uint8Array`) or a completely self-contained textual `.gltf` (JSON string with inline base64 buffers).
+- **Flexible Output:** Export as a binary `.glb` (`Uint8Array`) or a completely self-contained textual `.gltf` (JSON string with inline base64 embedded buffers).
 - **Inherited Power:** Supports all the custom PBR materials and skeletal animations introduced by `openscad-gltf-wasm`.
 
 ## Installation
@@ -42,32 +42,32 @@ npm install github:iliagrigorevdev/openscad-gltf-bridge
 
 The easiest way to process multiple files in a project without writing boilerplate Node.js scripts is using the built-in `scad-build` CLI. It automatically handles WASM loading and file reading for you!
 
-1. Create a `scad.config.js` file in your project root:
+1. Create a `scad.config.json` file in your project root:
 
-```javascript
-export default {
-  outDir: "./public/models",
-  assets: [
+```json
+{
+  "outDir": "./public/models",
+  "assets": [
     {
-      input: "./assets/SpaceShip.scad", // Automatically outputs to ./public/models/SpaceShip.glb
-      options: {
-        autoSmooth: false,
-        resize: 5, // Uniformly scale the entire model so its largest dimension is exactly 5 units
-      },
+      "input": "./assets/SpaceShip.scad",
+      "options": {
+        "autoSmooth": false,
+        "resize": 5
+      }
     },
     {
-      input: "./assets/Alien.scad", // Automatically outputs to ./public/models/Alien.glb
-      options: {
-        creaseAngle: 30,
-        compression: true,
-      },
+      "input": "./assets/Alien.scad",
+      "options": {
+        "creaseAngle": 30,
+        "compression": true
+      }
     },
     {
-      input: "./assets/Planet.scad",
-      output: "CustomPlanetName.glb", // You can still manually override the output name
-    },
-  ],
-};
+      "input": "./assets/Planet.scad",
+      "output": "CustomPlanetName.glb"
+    }
+  ]
+}
 ```
 
 2. Run the build command:
@@ -76,7 +76,7 @@ export default {
 npx scad-build
 
 # Or, optionally specify a custom config file:
-# npx scad-build custom-scad.config.js
+# npx scad-build custom-scad.config.json
 ```
 
 ### Usage in Node.js (Manual)
