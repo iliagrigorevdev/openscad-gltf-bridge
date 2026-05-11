@@ -58,7 +58,6 @@ export default {
     {
       input: "./assets/Alien.scad", // Automatically outputs to ./public/models/Alien.glb
       options: {
-        autoSmooth: true,
         creaseAngle: 30,
         compression: true,
       },
@@ -66,9 +65,6 @@ export default {
     {
       input: "./assets/Planet.scad",
       output: "CustomPlanetName.glb", // You can still manually override the output name
-      options: {
-        autoSmooth: true,
-      },
     },
   ],
 };
@@ -175,7 +171,7 @@ const gltfData = await processScad(scadCode, {
 | Option        | Type      | Default     | Description                                                                                                                                                  |
 | ------------- | --------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `wasmUrl`     | `string`  | `undefined` | URL to the Emscripten WASM file. Required so the engine knows where to load the binary.                                                                      |
-| `autoSmooth`  | `boolean` | `false`     | Unwelds geometry, computes smooth vertex normals based on `creaseAngle`, and rewields. Fixes OpenSCAD's default "flat/faceted" look.                         |
+| `autoSmooth`  | `boolean` | `true`      | Unwelds geometry, computes smooth vertex normals based on `creaseAngle`, and rewields. Fixes OpenSCAD's default "flat/faceted" look.                         |
 | `creaseAngle` | `number`  | `30`        | Angle threshold (in degrees) for auto-smoothing. Faces with an angle less than this will be smoothed together.                                               |
 | `resize`      | `number`  | `undefined` | Calculates the model's bounding box and uniformly scales the root so that its largest dimension (width/height/depth) equals this absolute value.             |
 | `compression` | `boolean` | `false`     | Applies Meshopt compression (`EXT_meshopt_compression`). _Note: This forces a binary output._                                                                |

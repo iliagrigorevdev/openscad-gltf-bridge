@@ -234,7 +234,7 @@ function uint8ArrayToBase64(u8a) {
 export async function processScad(scadCode, options = {}) {
   const {
     wasmUrl,
-    autoSmooth = false,
+    autoSmooth = true,
     creaseAngle = 30, // Default to 30 degrees
     binary = true,
     compression = false,
