@@ -26,8 +26,27 @@ async function run() {
   // Parse simple CLI arguments for flags and config names
   const args = process.argv.slice(2);
   const forceRebuild = args.includes("--force");
-  const configFileName =
-    args.find((a) => !a.startsWith("--")) || "scad.config.json";
+
+  let filterString = null;
+  let configFileName = "scad.config.json";
+
+  const positionalArgs = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--force") {
+      continue;
+    } else if (args[i] === "--filter") {
+      if (i + 1 < args.length) {
+        filterString = args[++i];
+      }
+      continue;
+    } else if (!args[i].startsWith("--")) {
+      positionalArgs.push(args[i]);
+    }
+  }
+
+  if (positionalArgs.length > 0) {
+    configFileName = positionalArgs[0];
+  }
 
   // 3. Find the config file in the user's project root
   const configPath = path.resolve(process.cwd(), configFileName);
@@ -53,6 +72,17 @@ async function run() {
 
   // 5. Process each asset
   for (const asset of config.assets) {
+    if (filterString) {
+      const query = filterString.toLowerCase();
+      const inMatch = asset.input && asset.input.toLowerCase().includes(query);
+      const outMatch =
+        asset.output && asset.output.toLowerCase().includes(query);
+
+      if (!inMatch && !outMatch) {
+        continue;
+      }
+    }
+
     const inputPath = path.resolve(process.cwd(), asset.input);
 
     // Auto-generate output filename if not provided

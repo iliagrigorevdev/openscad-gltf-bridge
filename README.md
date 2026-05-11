@@ -96,6 +96,9 @@ npx scad-build
 
 # Or, optionally specify a custom config file:
 # npx scad-build custom-scad.config.json
+
+# Or, optionally filter which models to build (case-insensitive):
+# npx scad-build --filter SpaceShip
 ```
 
 ### Usage in Node.js (Manual)
