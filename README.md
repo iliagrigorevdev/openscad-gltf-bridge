@@ -38,9 +38,28 @@ npm install github:iliagrigorevdev/openscad-gltf-bridge
 
 ## Usage
 
-### Usage via CLI (Recommended)
+### Usage via API (scad-serve)
 
-The easiest way to process multiple files in a project without writing boilerplate Node.js scripts is using the built-in `scad-build` CLI. It automatically handles WASM loading and file reading for you!
+If you're building a web IDE or an automated system that needs to manipulate your OpenSCAD pipeline remotely, we provide an Express.js based API server, `scad-serve`.
+
+Start the server:
+
+```bash
+npx scad-serve --port 3000
+```
+
+**Available Endpoints:**
+
+- `GET /api/config`: Returns the entire `scad.config.json` content.
+- `POST /api/config`: Completely overwrites the `scad.config.json`.
+- `POST /api/models`: Creates or updates a `.scad` file in the filesystem and registers it in the config.
+  - **Body example:** `{ "input": "./assets/Cube.scad", "content": "cube(10);", "options": { "autoSmooth": true } }`
+- `PATCH /api/models`: Updates only the build options for an existing registered model without changing its file contents.
+  - **Body example:** `{ "input": "./assets/Cube.scad", "options": { "resize": 5 } }`
+
+### Usage via CLI (scad-build)
+
+The easiest way to process multiple files locally in a project is using the built-in `scad-build` CLI. It automatically handles WASM loading and file reading for you!
 
 1. Create a `scad.config.json` file in your project root:
 

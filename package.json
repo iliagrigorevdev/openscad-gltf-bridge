@@ -1,15 +1,17 @@
 {
   "name": "openscad-gltf-bridge",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "type": "module",
   "main": "index.js",
   "bin": {
-    "scad-build": "./bin/scad-build.js"
+    "scad-build": "./bin/scad-build.js",
+    "scad-serve": "./bin/scad-serve.js"
   },
   "dependencies": {
     "@gltf-transform/core": "^4.3.0",
     "@gltf-transform/extensions": "^4.3.0",
     "@gltf-transform/functions": "^4.3.0",
+    "express": "^5.2.1",
     "meshoptimizer": "^1.1.1",
     "openscad-gltf-wasm": "github:iliagrigorevdev/openscad-gltf-wasm"
   }
