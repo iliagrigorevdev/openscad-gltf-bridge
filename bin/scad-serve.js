@@ -40,7 +40,7 @@ function readConfig() {
     }
   }
   // Default structure if missing
-  return { outDir: "./public/models", assets: [] };
+  return { inputDir: "./assets", outDir: "./public/models", assets: [] };
 }
 
 function writeConfig(config) {
@@ -92,7 +92,9 @@ app.get("/api/models", (req, res) => {
     return res.status(400).json({ error: "Missing 'input' query parameter." });
   }
 
-  const filePath = path.resolve(process.cwd(), input);
+  const config = readConfig();
+  const inputDir = path.resolve(process.cwd(), config.inputDir || "./");
+  const filePath = path.resolve(inputDir, `${input}.scad`);
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ error: "Model file not found on server." });
   }
@@ -109,12 +111,15 @@ app.get("/api/models", (req, res) => {
 app.post("/api/models", (req, res) => {
   const { input, output, options, content } = req.body;
   if (!input) {
-    return res.status(400).json({ error: "Missing 'input' path." });
+    return res.status(400).json({ error: "Missing 'input' name." });
   }
+
+  const config = readConfig();
+  const inputDir = path.resolve(process.cwd(), config.inputDir || "./");
 
   // Write model file to filesystem (upsert)
   if (content !== undefined) {
-    const filePath = path.resolve(process.cwd(), input);
+    const filePath = path.resolve(inputDir, `${input}.scad`);
     const dir = path.dirname(filePath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -123,7 +128,6 @@ app.post("/api/models", (req, res) => {
   }
 
   // Update config
-  const config = readConfig();
   const existingIndex = config.assets.findIndex((a) => a.input === input);
 
   const newAsset = { input };
@@ -147,7 +151,7 @@ app.patch("/api/models", (req, res) => {
   if (!input) {
     return res
       .status(400)
-      .json({ error: "Missing 'input' path to identify the model." });
+      .json({ error: "Missing 'input' name to identify the model." });
   }
 
   const config = readConfig();
@@ -156,7 +160,10 @@ app.patch("/api/models", (req, res) => {
     return res.status(404).json({ error: "Model not found in config." });
   }
 
-  if (output !== undefined) asset.output = output;
+  if (output !== undefined) {
+    if (output === "") delete asset.output;
+    else asset.output = output;
+  }
   if (options !== undefined) {
     asset.options = { ...(asset.options || {}), ...options };
   }

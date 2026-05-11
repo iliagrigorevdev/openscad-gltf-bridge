@@ -63,6 +63,7 @@ async function run() {
   // 4. Parse the user's config
   const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 
+  const inputDir = path.resolve(process.cwd(), config.inputDir || "./");
   const outDir = path.resolve(process.cwd(), config.outDir || "./public");
   if (!fs.existsSync(outDir)) {
     fs.mkdirSync(outDir, { recursive: true });
@@ -83,15 +84,15 @@ async function run() {
       }
     }
 
-    const inputPath = path.resolve(process.cwd(), asset.input);
+    const inputPath = path.resolve(inputDir, `${asset.input}.scad`);
 
     // Auto-generate output filename if not provided
     const isBinary =
       asset.options?.binary !== false || asset.options?.compression;
     const defaultExt = isBinary ? ".glb" : ".gltf";
-    const outputName =
-      asset.output ||
-      path.basename(asset.input, path.extname(asset.input)) + defaultExt;
+    const outputName = asset.output
+      ? `${asset.output}${defaultExt}`
+      : `${asset.input}${defaultExt}`;
     const outputPath = path.resolve(outDir, outputName);
 
     if (!fs.existsSync(inputPath)) {
@@ -110,12 +111,12 @@ async function run() {
         outputStat.mtimeMs >= inputStat.mtimeMs &&
         outputStat.mtimeMs >= configStat.mtimeMs
       ) {
-        console.log(`⏩ Skipping ${path.basename(asset.input)} (up-to-date)`);
+        console.log(`⏩ Skipping ${asset.input} (up-to-date)`);
         continue;
       }
     }
 
-    console.log(`Processing ${path.basename(asset.input)}...`);
+    console.log(`Processing ${asset.input}...`);
     const scadCode = fs.readFileSync(inputPath, "utf8");
 
     try {

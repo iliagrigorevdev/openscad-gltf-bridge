@@ -52,11 +52,11 @@ npx scad-serve --port 3000
 
 - `GET /api/config`: Returns the entire `scad.config.json` content.
 - `POST /api/config`: Completely overwrites the `scad.config.json`.
-- `GET /api/models`: Retrieves the raw text content of a `.scad` file from the filesystem. (Query param: `?input=path/to/file.scad`).
-- `POST /api/models`: Creates or updates a `.scad` file in the filesystem and registers it in the config.
-  - **Body example:** `{ "input": "./assets/Cube.scad", "content": "cube(10);", "options": { "autoSmooth": true } }`
+- `GET /api/models`: Retrieves the raw text content of a `.scad` file from the filesystem. (Query param: `?input=Cube`).
+- `POST /api/models`: Creates or updates a `.scad` file in the filesystem (under `inputDir`) and registers it in the config.
+  - **Body example:** `{ "input": "Cube", "content": "cube(10);", "options": { "autoSmooth": true } }`
 - `PATCH /api/models`: Updates only the build options for an existing registered model without changing its file contents.
-  - **Body example:** `{ "input": "./assets/Cube.scad", "options": { "resize": 5 } }`
+  - **Body example:** `{ "input": "Cube", "options": { "resize": 5 } }`
 
 ### Usage via CLI (scad-build)
 
@@ -66,25 +66,26 @@ The easiest way to process multiple files locally in a project is using the buil
 
 ```json
 {
+  "inputDir": "./assets",
   "outDir": "./public/models",
   "assets": [
     {
-      "input": "./assets/SpaceShip.scad",
+      "input": "SpaceShip",
       "options": {
         "autoSmooth": false,
         "resize": 5
       }
     },
     {
-      "input": "./assets/Alien.scad",
+      "input": "Alien",
       "options": {
         "creaseAngle": 30,
         "compression": true
       }
     },
     {
-      "input": "./assets/Planet.scad",
-      "output": "CustomPlanetName.glb"
+      "input": "Planet",
+      "output": "CustomPlanetName"
     }
   ]
 }
