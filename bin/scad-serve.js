@@ -2,6 +2,11 @@
 import express from "express";
 import fs from "fs";
 import path from "path";
+import { spawn } from "child_process";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const args = process.argv.slice(2);
 const port = args.includes("--port")
@@ -40,6 +45,21 @@ function readConfig() {
 
 function writeConfig(config) {
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+}
+
+function triggerBuild(input) {
+  const buildScript = path.join(__dirname, "scad-build.js");
+  console.log(`\n[Auto-Build] Triggering build for: ${input}`);
+
+  const child = spawn(
+    process.execPath,
+    [buildScript, configFileName, "--force", "--filter", input],
+    { stdio: "inherit" },
+  );
+
+  child.on("error", (err) => {
+    console.error(`[Auto-Build Error] Failed to start build process: ${err}`);
+  });
 }
 
 // ========================
@@ -97,6 +117,7 @@ app.post("/api/models", (req, res) => {
   }
 
   writeConfig(config);
+  triggerBuild(input);
   res.json({ message: "Model created/updated successfully", asset: newAsset });
 });
 
@@ -121,6 +142,7 @@ app.patch("/api/models", (req, res) => {
   }
 
   writeConfig(config);
+  triggerBuild(input);
   res.json({ message: "Model configuration updated", asset });
 });
 
