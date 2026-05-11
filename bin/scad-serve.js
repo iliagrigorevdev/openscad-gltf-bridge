@@ -85,6 +85,26 @@ app.post("/api/config", (req, res) => {
 // 2. Model Management
 // ========================
 
+// Get SCAD model content
+app.get("/api/models", (req, res) => {
+  const input = req.query.input;
+  if (!input) {
+    return res.status(400).json({ error: "Missing 'input' query parameter." });
+  }
+
+  const filePath = path.resolve(process.cwd(), input);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: "Model file not found on server." });
+  }
+
+  try {
+    const content = fs.readFileSync(filePath, "utf-8");
+    res.json({ content });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to read model file." });
+  }
+});
+
 // Add/Update SCAD model in filesystem and config
 app.post("/api/models", (req, res) => {
   const { input, output, options, content } = req.body;

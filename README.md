@@ -52,6 +52,7 @@ npx scad-serve --port 3000
 
 - `GET /api/config`: Returns the entire `scad.config.json` content.
 - `POST /api/config`: Completely overwrites the `scad.config.json`.
+- `GET /api/models`: Retrieves the raw text content of a `.scad` file from the filesystem. (Query param: `?input=path/to/file.scad`).
 - `POST /api/models`: Creates or updates a `.scad` file in the filesystem and registers it in the config.
   - **Body example:** `{ "input": "./assets/Cube.scad", "content": "cube(10);", "options": { "autoSmooth": true } }`
 - `PATCH /api/models`: Updates only the build options for an existing registered model without changing its file contents.
