@@ -1,6 +1,6 @@
 {
   "name": "openscad-gltf-bridge",
-  "version": "0.7.5",
+  "version": "0.8.0",
   "type": "module",
   "main": "index.js",
   "bin": {
@@ -13,6 +13,6 @@
     "@gltf-transform/functions": "^4.3.0",
     "express": "^5.2.1",
     "meshoptimizer": "^1.1.1",
-    "openscad-gltf-wasm": "github:iliagrigorevdev/openscad-gltf-wasm"
+    "openscad-gltf-wasm": "github:iliagrigorevdev/openscad-gltf-wasm#weights"
   }
 }

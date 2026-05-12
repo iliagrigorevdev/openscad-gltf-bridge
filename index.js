@@ -276,6 +276,23 @@ export async function processScad(scadCode, options = {}) {
 
   const document = await io.readBinary(dataToRead);
 
+  // --- Fix Skinning Nodes ---
+  // If the exporter mapped weights but didn't assign the skin to the node, fix it.
+  const skins = document.getRoot().listSkins();
+  if (skins.length > 0) {
+    for (const node of document.getRoot().listNodes()) {
+      const mesh = node.getMesh();
+      if (mesh && !node.getSkin()) {
+        const isSkinned = mesh
+          .listPrimitives()
+          .some((p) => p.getAttribute("JOINTS_0"));
+        if (isSkinned) {
+          node.setSkin(skins[0]);
+        }
+      }
+    }
+  }
+
   // Apply absolute resizing based on bounding box
   if (typeof resize === "number" && resize > 0) {
     let minX = Infinity,
