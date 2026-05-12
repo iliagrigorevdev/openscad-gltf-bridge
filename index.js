@@ -115,6 +115,11 @@ function computeSmoothNormals(positions, creaseAngle) {
 }
 
 function autoSmoothPrimitive(document, primitive, creaseAngle) {
+  if (primitive.listTargets().length > 0) {
+    console.warn("Auto-smooth skipped for primitive with morph targets.");
+    return;
+  }
+
   const positionAccessor = primitive.getAttribute("POSITION");
   if (!positionAccessor) return;
 
