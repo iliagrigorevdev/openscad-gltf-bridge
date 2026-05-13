@@ -42,11 +42,21 @@ npm install github:iliagrigorevdev/openscad-gltf-bridge
 
 If you're building a web IDE or an automated system that needs to manipulate your OpenSCAD pipeline remotely, we provide an Express.js based API server, `scad-serve`.
 
-Start the server:
+Start the server using one of these options:
 
-```bash
-npx scad-serve --port 3000
-```
+- **Option A: Run directly (No installation)**
+  ```bash
+  npx -p github:iliagrigorevdev/openscad-gltf-bridge scad-serve
+  ```
+- **Option B: If installed as a dev-dependency**
+  ```bash
+  npx scad-serve
+  ```
+
+**Optional Arguments:**
+
+- `--port 3000`: Set a custom port (default is 3000).
+- `my-config.json`: Specify a custom config filename (default is `scad.config.json`).
 
 **Available Endpoints:**
 
@@ -93,17 +103,22 @@ The easiest way to process multiple files locally in a project is using the buil
 }
 ```
 
-2. Run the build command:
+2. Run the build command using one of these options:
 
-```bash
-npx scad-build
+- **Option A: Run directly (No installation)**
+  ```bash
+  npx -p github:iliagrigorevdev/openscad-gltf-bridge scad-build
+  ```
+- **Option B: If installed as a dev-dependency**
+  ```bash
+  npx scad-build
+  ```
 
-# Or, optionally specify a custom config file:
-# npx scad-build custom-scad.config.json
+**Optional Arguments:**
 
-# Or, optionally filter which models to build (case-insensitive):
-# npx scad-build --filter SpaceShip
-```
+- `custom-scad.config.json`: Specify a custom config file.
+- `--filter SpaceShip`: Only build models matching this name (case-insensitive).
+- `--force`: Rebuild all assets even if they haven't changed.
 
 ### Usage in Node.js (Manual)
 
