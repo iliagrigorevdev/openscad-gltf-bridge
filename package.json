@@ -5,7 +5,8 @@
   "main": "index.js",
   "bin": {
     "scad-build": "./bin/scad-build.js",
-    "scad-serve": "./bin/scad-serve.js"
+    "scad-serve": "./bin/scad-serve.js",
+    "scad-import": "./bin/scad-import.js"
   },
   "dependencies": {
     "@gltf-transform/core": "^4.3.0",
