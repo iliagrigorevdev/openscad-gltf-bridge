@@ -9,11 +9,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const args = process.argv.slice(2);
-const port = args.includes("--port")
-  ? parseInt(args[args.indexOf("--port") + 1]) || 3000
-  : 3000;
-const configFileName =
-  args.find((a) => !a.startsWith("--")) || "scad.config.json";
+let port = 3000;
+let configFileName = "scad.config.json";
+
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === "--port") {
+    port = parseInt(args[i + 1]) || 3000;
+    i++; // Skip the port number value so it isn't treated as a filename
+  } else if (!args[i].startsWith("--")) {
+    configFileName = args[i];
+  }
+}
 const configPath = path.resolve(process.cwd(), configFileName);
 
 const app = express();
