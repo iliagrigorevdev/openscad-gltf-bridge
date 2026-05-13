@@ -47,18 +47,40 @@ function writeConfig(config) {
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
 }
 
-function triggerBuild(input) {
-  const buildScript = path.join(__dirname, "scad-build.js");
-  console.log(`\n[Auto-Build] Triggering build for: ${input}`);
+function buildModel(input) {
+  return new Promise((resolve, reject) => {
+    const buildScript = path.join(__dirname, "scad-build.js");
+    console.log(`\n[API-Build] Triggering build for: ${input}`);
 
-  const child = spawn(
-    process.execPath,
-    [buildScript, configFileName, "--force", "--filter", input],
-    { stdio: "inherit" },
-  );
+    const child = spawn(
+      process.execPath,
+      [buildScript, configFileName, "--force", "--filter", input],
+      { stdio: "pipe" },
+    );
 
-  child.on("error", (err) => {
-    console.error(`[Auto-Build Error] Failed to start build process: ${err}`);
+    let stderr = "";
+    // Echo output to server console in real-time
+    child.stdout.pipe(process.stdout);
+    child.stderr.on("data", (data) => {
+      stderr += data.toString();
+      process.stderr.write(data);
+    });
+
+    child.on("error", (err) => {
+      console.error(`[API-Build Error] Failed to start build process: ${err}`);
+      reject(err);
+    });
+
+    child.on("close", (code) => {
+      if (code === 0) {
+        console.log(`[API-Build] Build successful for: ${input}`);
+        resolve();
+      } else {
+        const errorMsg = `Build process for ${input} exited with code ${code}. Stderr: ${stderr.trim()}`;
+        console.error(`[API-Build Error] ${errorMsg}`);
+        reject(new Error(errorMsg));
+      }
+    });
   });
 }
 
@@ -141,7 +163,6 @@ app.post("/api/models", (req, res) => {
   }
 
   writeConfig(config);
-  triggerBuild(input);
   res.json({ message: "Model created/updated successfully", asset: newAsset });
 });
 
@@ -169,8 +190,55 @@ app.patch("/api/models", (req, res) => {
   }
 
   writeConfig(config);
-  triggerBuild(input);
   res.json({ message: "Model configuration updated", asset });
+});
+
+// Build a single model and return the file
+app.post("/api/models/build", async (req, res) => {
+  const { input } = req.body;
+  if (!input) {
+    return res.status(400).json({ error: "Missing 'input' name." });
+  }
+
+  const config = readConfig();
+  const asset = config.assets.find((a) => a.input === input);
+  if (!asset) {
+    return res.status(404).json({ error: "Model not found in config." });
+  }
+
+  try {
+    await buildModel(input);
+
+    // Determine output path (logic from scad-build.js)
+    const outDir = path.resolve(process.cwd(), config.outDir || "./public");
+    const isBinary =
+      asset.options?.binary !== false || asset.options?.compression;
+    const defaultExt = isBinary ? ".glb" : ".gltf";
+    const outputName = asset.output
+      ? `${asset.output}${defaultExt}`
+      : `${asset.input}${defaultExt}`;
+    const outputPath = path.resolve(outDir, outputName);
+
+    if (!fs.existsSync(outputPath)) {
+      console.error(`Build output file not found at: ${outputPath}`);
+      return res
+        .status(500)
+        .json({ error: "Build succeeded but output file was not found." });
+    }
+
+    res.sendFile(outputPath, (err) => {
+      if (err) {
+        console.error("Error sending file:", err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Failed to send the built file." });
+        }
+      }
+    });
+  } catch (err) {
+    res
+      .status(500)
+      .json({ error: "Build process failed.", details: err.message });
+  }
 });
 
 // Start Server
