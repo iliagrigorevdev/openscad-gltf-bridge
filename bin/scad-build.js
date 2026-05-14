@@ -123,7 +123,7 @@ async function run() {
       const glbData = await processScad(scadCode, {
         wasmUrl: `file://${wasmPath}`,
         binary: true,
-        ...asset.options, // Extensible options like autoSmooth, creaseAngle, compression, resize
+        ...asset.options, // Extensible options like compression, resize
       });
 
       fs.writeFileSync(outputPath, glbData);
