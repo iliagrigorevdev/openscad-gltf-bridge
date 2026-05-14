@@ -105,10 +105,67 @@ func _import(source_file, save_path, options, platform_variants, gen_files):
     if not generated_scene:
         return ERR_CANT_CREATE
 
+    # Prevent "inconsistent owner" warnings by stripping owners before shuffling nodes
+    _clear_owner_recursive(generated_scene)
+
+    # Convert ImporterMeshInstance3D to standard MeshInstance3D geometry
+    var final_scene = _convert_scene(generated_scene)
+    if final_scene != generated_scene:
+        generated_scene.queue_free()
+
+    # Rename the root node to the original SCAD file's name (e.g. "my_model")
+    final_scene.name = source_file.get_file().get_basename()
+
+    # Make sure all children have their owner flag set to the root node
+    # so that Godot properly includes them inside the saved PackedScene!
+    _set_owner_recursive(final_scene, final_scene)
+
     var packed_scene = PackedScene.new()
-    packed_scene.pack(generated_scene)
-    generated_scene.queue_free()
+    packed_scene.pack(final_scene)
+    final_scene.queue_free()
 
     # 7. Save to the internal .godot/imported folder
     var final_save_path = "%s.%s" % [save_path, _get_save_extension()]
     return ResourceSaver.save(packed_scene, final_save_path)
+
+
+# Helper function to swap editor-only importer meshes with game-ready meshes
+func _convert_scene(node: Node) -> Node:
+    var new_node = node
+    
+    if node is ImporterMeshInstance3D:
+        var mesh_inst = MeshInstance3D.new()
+        mesh_inst.name = node.name
+        mesh_inst.transform = node.transform
+        if node.mesh != null:
+            # Extracts the fully baked ArrayMesh with materials from the importer format
+            mesh_inst.mesh = node.mesh.get_mesh()
+        new_node = mesh_inst
+    
+    var children = node.get_children()
+    for child in children:
+        var new_child = _convert_scene(child)
+        if new_child != child:
+            node.remove_child(child)
+            new_node.add_child(new_child)
+            child.queue_free()
+        else:
+            # If the parent was converted but the child wasn't, shift the child to the new parent
+            if new_node != node:
+                node.remove_child(child)
+                new_node.add_child(child)
+                
+    return new_node
+
+# Helper function to prevent hierarchy warnings
+func _clear_owner_recursive(node: Node):
+    node.owner = null
+    for child in node.get_children():
+        _clear_owner_recursive(child)
+
+# Helper function to assign nodes to the root (essential for scene packing)
+func _set_owner_recursive(node: Node, root: Node):
+    if node != root:
+        node.owner = root
+    for child in node.get_children():
+        _set_owner_recursive(child, root)
