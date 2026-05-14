@@ -140,6 +140,14 @@ func _convert_scene(node: Node) -> Node:
         var mesh_inst = MeshInstance3D.new()
         mesh_inst.name = node.name
         mesh_inst.transform = node.transform
+        
+        # PROPERLY copy visual and structural properties required for animations to play correctly
+        mesh_inst.visible = node.visible
+        mesh_inst.layers = node.layer_mask
+        
+        if "skeleton_path" in node and node.skeleton_path != NodePath(""):
+            mesh_inst.skeleton = node.skeleton_path
+            
         if node.mesh != null:
             # Extracts the fully baked ArrayMesh with materials from the importer format
             mesh_inst.mesh = node.mesh.get_mesh()
