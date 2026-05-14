@@ -1,12 +1,12 @@
 {
   "name": "openscad-gltf-bridge",
-  "version": "0.7.7",
+  "version": "0.7.8",
   "type": "module",
   "main": "index.js",
   "bin": {
     "scad-build": "./bin/scad-build.js",
     "scad-serve": "./bin/scad-serve.js",
-    "scad-import": "./bin/scad-import.js"
+    "scad-process": "./bin/scad-process.js"
   },
   "dependencies": {
     "@gltf-transform/core": "^4.3.0",

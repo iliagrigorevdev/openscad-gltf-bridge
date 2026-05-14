@@ -4,13 +4,13 @@ extends EditorImportPlugin
 enum Presets { DEFAULT }
 
 func _get_importer_name():
-    return "custom.scad.importer"
+    return "openscad.gltf.importer"
 
 func _get_visible_name():
-    return "OpenSCAD Scene"
+    return "OpenSCAD GLTF Importer"
 
 func _get_recognized_extensions():
-    return ["scad"]
+    return PackedStringArray(["scad"])
 
 func _get_save_extension():
     return "scn"
@@ -51,6 +51,9 @@ func _import(source_file, save_path, options, platform_variants, gen_files):
         
     var json_options_str = JSON.stringify(js_options)
 
+    # Encode to Base64 to protect it from shell quote-stripping
+    var b64_options = Marshalls.utf8_to_base64(json_options_str)
+
     # 2. Setup NPX command
     var npx_command = "npx"
     var args = PackedStringArray()
@@ -64,17 +67,15 @@ func _import(source_file, save_path, options, platform_variants, gen_files):
     
     # Tell npx to use your package
     args.append("-p")
-    # NOTE: If you haven't published to npm, use your github URL here instead:
-    # args.append("github:YourUsername/openscad-gltf-bridge")
-    args.append("openscad-gltf-bridge") 
-    
+    args.append("github:iliagrigorevdev/openscad-gltf-bridge#godot")
+
     # The actual CLI command defined in package.json "bin"
-    args.append("scad-import") 
-    
+    args.append("scad-process")
+
     # Pass our 3 arguments: input, output, options
     args.append(global_source)
     args.append(temp_glb_path)
-    args.append(json_options_str)
+    args.append(b64_options)
 
     # 3. Execute NPX
     var output = []

@@ -29,12 +29,24 @@ async function run() {
   const optionsJson = args[2];
 
   if (!inputPath || !outputPath) {
-    console.error("Usage: scad-import <input.scad> <output.glb> [options_json]");
+    console.error(
+      "Usage: scad-process <input.scad> <output.glb> [options_json]",
+    );
     process.exit(1);
   }
 
-  const options = optionsJson ? JSON.parse(optionsJson) : {};
-  
+  let options = {};
+  if (optionsJson) {
+    if (optionsJson.startsWith("{")) {
+      // If it starts with '{', try parsing as normal JSON
+      options = JSON.parse(optionsJson);
+    } else {
+      // Otherwise, safely decode the Base64 string
+      const decoded = Buffer.from(optionsJson, "base64").toString("utf8");
+      options = JSON.parse(decoded);
+    }
+  }
+
   if (!fs.existsSync(inputPath)) {
     console.error(`Input file not found: ${inputPath}`);
     process.exit(1);
@@ -45,8 +57,7 @@ async function run() {
   try {
     const glbData = await processScad(scadCode, {
       wasmUrl: `file://${wasmPath}`,
-      binary: true, // Godot expects a binary GLB file
-      ...options
+      ...options,
     });
 
     fs.writeFileSync(outputPath, glbData);
