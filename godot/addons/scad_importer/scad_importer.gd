@@ -39,7 +39,10 @@ func _get_option_visibility(path, option_name, options):
 
 func _import(source_file, save_path, options, platform_variants, gen_files):
     var global_source = ProjectSettings.globalize_path(source_file)
-    var temp_glb_path = ProjectSettings.globalize_path("user://temp_scad_import.glb")
+
+    # Generate a unique path for this specific import
+    var unique_id = str(hash(source_file))
+    var temp_glb_path = ProjectSettings.globalize_path("user://scad_cache_" + unique_id + ".glb")
     
     # 1. Prepare JSON options for your Node script
     var js_options = {
